@@ -4,7 +4,7 @@
 # Features:
 # - pyenv Python 3.10 自動検出
 # - .venv 自動生成
-# - README.org → src/*** 自動 tangle
+# - README.org → src/*** 自動 'tangle
 # - パッケージ自動インストール (pip install .)
 # - ffmpeg による音源 → WAV 変換（外部 WAV も常に正規化用に通す）
 # - audio2score CLI による Demucs+BasicPitch 自動実行
@@ -78,7 +78,7 @@ ffmpeg: $(RAW_WAV)
 # 3. Run audio2score pipeline (Demucs + BasicPitch + MuseScore)
 # ------------------------------------------------------------
 .PHONY: score
-score: setup tangle ffmpeg
+score: setup ffmpeg
 	@echo "=== Running audio2score pipeline ==="
 	$(PY) -m audio2score.cli \
 		"$(RAW_WAV)" \
