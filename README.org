@@ -14,6 +14,82 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 6. MuseScore or music21 で MusicXML 化
 7. PDF 生成（オプション）
 
+* Requirementsy
+
+本プロジェクトは、macOS を中心に、以下の条件を満たす環境で動作します。
+
+** OS・Python
+
+- macOS 13 Ventura / 14 Sonoma / 15 Sequoia / 16 Tahoe （Apple Silicon 推奨）
+- Python 3.10 系（BasicPitch・Demucs の安定動作のため必須）
+  - pyenv による Python 3.10.x のインストールを推奨
+  - Homebrew python3 は 3.12 系になるため非推奨
+
+** Required Applications
+
+- ffmpeg  8.x
+  - 入力音源を WAV（mono / 44.1kHz）へ統一するために必須
+  - Homebrew インストール例：
+    #+begin_src bash
+      brew install ffmpeg
+    #+end_src
+
+- MuseScore 3 / 4
+  - MusicXML → PDF 生成のために必須
+  - CLI コマンド名：
+    - MuseScore 3: mscore
+    - MuseScore 4: musescore4
+
+** Python Package Dependencies (PEP 621, managed via pyproject.toml)
+
+本ツールは以下の Python ライブラリを利用します。すべて ``pip install .`` によって自動インストールされます。
+
+| パッケージ        | 用途                                            |
+|-------------------+--------------------------------------------------|
+| librosa>=0.10     | 音声前処理（正規化、ロード、リサンプリング）    |
+| soundfile>=0.12   | WAV の読み書き                                  |
+| basic-pitch>=0.3  | メロディ推定（Audio→MIDI）                      |
+| demucs>=4.0.0     | マルチモデル・アンサンブルによるステム分離      |
+| music21>=9.1      | MIDI → MusicXML（MuseScore 失敗時の fallback）  |
+| numpy>=1.23       | 基本演算                                          |
+| scipy>=1.10       | 信号処理                                          |
+| numba>=0.57       | librosa 速度最適化                               |
+| tqdm>=4.66        | プログレスバー                                   |
+| requests>=2.31    | モデルの自動ダウンロード（Demucs）               |
+| torchcodec>=0.8.1 | torchaudio の save() 呼び出しで必要になる場合あり |
+
+** Demucs Model
+
+初回実行時に以下のモデルがダウンロードされます：
+
+- =htdemucs=
+- =htdemucs_6s=
+
+これらは *高精度ステム分離* のベーシックセットであり、本ツールの
+``--models htdemucs htdemucs_6s`` デフォルト設定に対応しています。
+
+** MuseScore CLI
+
+以下のコマンドで CLI が動作することを確認してください。
+
+#+begin_src bash
+  mscore --help      # MuseScore 3
+  # または
+  musescore4 --help  # MuseScore 4
+#+end_src
+
+** ffmpeg
+
+#+begin_src bash
+  ffmpeg -version
+#+end_src
+
+** optional
+
+- Intel MKL（numpy MKL 版）
+- Python 3.10 + numba による librosa 高速化
+- Apple Silicon 上での torch-neon 最適化
+
 * Project Structure
 
 本プロジェクトは、Org Babel の :tangle 機能によって
@@ -538,7 +614,8 @@ audio2score は以下の *完全自動パイプライン* を提供します：
   # Features:
   # - pyenv Python 3.10 自動検出
   # - .venv 自動生成
-  # - README.org → src/*** 自動 'tangle
+  # - README.org → src/*** 自動 '
+  tangle
   # - パッケージ自動インストール (pip install .)
   # - ffmpeg による音源 → WAV 変換（外部 WAV も常に正規化用に通す）
   # - audio2score CLI による Demucs+BasicPitch 自動実行
