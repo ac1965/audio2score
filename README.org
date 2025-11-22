@@ -125,38 +125,38 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 #+begin_src mermaid
   flowchart TD
 
-      %% Entry
-      A["User Input\n(audio file)"] --> B["FFmpeg\nConvert to WAV"]
-      B --> C["Normalize WAV"]
+  %% Entry
+  A["User Input\n(audio file)"] --> B["FFmpeg\nConvert to WAV"]
+  B --> C["Normalize WAV"]
 
-      %% Option branch: STEMS
-      C -->|--stems=false| M1["BasicPitch\nMain MIDI Only"]
-      C -->|--stems=true| D["Demucs\n(Ensemble Models)"]
+  %% Option branch: STEMS
+  C -->|--stems=false| M1["BasicPitch\nMain MIDI Only"]
+  C -->|--stems=true| D["Demucs\n(Ensemble Models)"]
 
-      %% Demucs → MIDI
-      D --> E["Per-Stem WAVs"]
-      E --> F["BasicPitch\nPer-Stem MIDI"]
+  %% Demucs → MIDI
+  D --> E["Per-Stem WAVs"]
+  E --> F["BasicPitch\nPer-Stem MIDI"]
 
-      %% Main MIDI always processed
-      C --> M1
-      M1 --> MXML_MAIN["MusicXML Export\n(main)"]
+  %% Main MIDI always processed
+  C --> M1
+  M1 --> MXML_MAIN["MusicXML Export\n(main)"]
 
-      %% Per-stem MIDI → XML
-      F --> MXML_STEM["MusicXML Export\n(stems)"]
+  %% Per-stem MIDI → XML
+  F --> MXML_STEM["MusicXML Export\n(stems)"]
 
-      %% PDF branch
-      MXML_MAIN -->|--no-pdf=false| PDF_MAIN["PDF Export (main)"]
-      MXML_STEM -->|--no-pdf=false| PDF_STEMS["PDF Export (stems)"]
+  %% PDF branch
+  MXML_MAIN -->|--no-pdf=false| PDF_MAIN["PDF Export (main)"]
+  MXML_STEM -->|--no-pdf=false| PDF_STEMS["PDF Export (stems)"]
 
-      %% no-pdf option
-      MXML_MAIN -->|--no-pdf=true| OUT_MAIN["Output main XML only"]
-      MXML_STEM -->|--no-pdf=true| OUT_STEMS["Output stem XML only"]
+  %% no-pdf option
+  MXML_MAIN -->|--no-pdf=true| OUT_MAIN["Output main XML only"]
+  MXML_STEM -->|--no-pdf=true| OUT_STEMS["Output stem XML only"]
 
-      %% Final merge
-      PDF_MAIN --> Z["Build Directory"]
-      PDF_STEMS --> Z
-      OUT_MAIN --> Z
-      OUT_STEMS --> Z
+  %% Final merge
+  PDF_MAIN --> Z["Build Directory"]
+  PDF_STEMS --> Z
+  OUT_MAIN --> Z
+  OUT_STEMS --> Z
 #+end_src
 
 この図により、以下の点が明確になります：
@@ -716,3 +716,9 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 
 
 #+end_src
+* Example
+
+| C     | Normalize WAV  | [[file:./build/おはよう.normalized.wav]]                       |
+| M1    | Main MIDI Only | [[file:./build/midi/main/おはよう.normalized_basic_pitch.mid]] |
+| Merge | OUT_STEMS       | [[file:./build/おはよう.normalized_basic_pitch.musicxml]]      |
+|       | PDF_MAIN        | [[file:./build/おはよう.normalized_basic_pitch.pdf]]           |
