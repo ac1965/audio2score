@@ -1,0 +1,68 @@
+[project]
+name = "audio2score"
+version = "0.1.0"
+description = "Audio → MIDI → MusicXML → PDF pipeline using Demucs ensemble + BasicPitch."
+readme = "README.org"
+requires-python = ">=3.10"
+authors = [
+  { name = "YAMASHITA, Takao" }
+]n
+license = { text = "MIT" }
+
+# -------------------------------------------
+# Runtime Dependencies (本番動作に必要)
+# -------------------------------------------
+dependencies = [
+  "librosa>=0.10",
+  "soundfile>=0.12",
+  "basic-pitch>=0.3",
+  "music21>=9.1",
+  "demucs>=4.0.0",
+  "numpy>=1.23",
+  "scipy>=1.10",
+  "numba>=0.57",
+  "tqdm>=4.66",
+  "requests>=2.31",
+  "torchcodec>=0.8.1",
+]
+
+# -------------------------------------------
+# Optional CLI entry point
+# -------------------------------------------
+[project.scripts]
+audio2score = "audio2score.cli:main"
+
+# -------------------------------------------
+# Build system
+# -------------------------------------------
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# -------------------------------------------
+# For editable installs: src/ layout対応
+# -------------------------------------------
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# -------------------------------------------
+# Dev dependencies (optional)
+# -------------------------------------------
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "black",
+  "flake8",
+  "mypy",
+  "isort",
+]
+
+# -------------------------------------------
+# Vocals: model caching & torch warnings 表示制御
+# -------------------------------------------
+[tool.audio2score]
+default_models = ["htdemucs", "htdemucs_6s"]
+default_samplerate = 44100
