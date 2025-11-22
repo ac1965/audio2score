@@ -92,16 +92,23 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 
 * pyproject.toml
 
+- pyproject.toml → requirements.txt を自動生成
+
+#+begin_src sh
+  pip install pip-tools
+  pip-compile pyproject.toml --output-file=requirements.txt
+#+end_src
+
 #+begin_src toml :tangle pyproject.toml
   [project]
   name = "audio2score"
   version = "0.1.0"
   description = "Audio → MIDI → MusicXML → PDF pipeline using Demucs ensemble + BasicPitch."
-  readme = "README.org"
+  # readme = "README.org"
   requires-python = ">=3.10"
   authors = [
     { name = "YAMASHITA, Takao" }
-  ]n
+  ]
   license = { text = "MIT" }
 
   # -------------------------------------------
