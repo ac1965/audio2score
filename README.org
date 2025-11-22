@@ -166,6 +166,13 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 - メイン MIDI は **必ず** BasicPitch により生成
 - MusicXML はメイン／STEM いずれも生成される（PDF は任意）
 
+* Example
+
+| C     | Normalize WAV  | [[file:./build/おはよう.normalized.wav]]                       |
+| M1    | Main MIDI Only | [[file:./build/midi/main/おはよう.normalized_basic_pitch.mid]] |
+| Merge | OUT_STEMS       | [[file:./build/おはよう.normalized_basic_pitch.musicxml]]      |
+|       | PDF_MAIN        | [[file:./build/おはよう.normalized_basic_pitch.pdf]]           |
+
 * pyproject.toml
 
 - pyproject.toml → requirements.txt を自動生成
@@ -716,9 +723,3 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 
 
 #+end_src
-* Example
-
-| C     | Normalize WAV  | [[file:./build/おはよう.normalized.wav]]                       |
-| M1    | Main MIDI Only | [[file:./build/midi/main/おはよう.normalized_basic_pitch.mid]] |
-| Merge | OUT_STEMS       | [[file:./build/おはよう.normalized_basic_pitch.musicxml]]      |
-|       | PDF_MAIN        | [[file:./build/おはよう.normalized_basic_pitch.pdf]]           |
