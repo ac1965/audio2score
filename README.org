@@ -238,17 +238,19 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   # Runtime Dependencies (本番動作に必要)
   # -------------------------------------------
   dependencies = [
-    "librosa>=0.10",
-    "soundfile>=0.12",
-    "basic-pitch>=0.3",
-    "demucs>=4.0.0",
-    "music21>=9.1",
-    "numpy>=1.23",
-    "scipy>=1.10",
-    "numba>=0.57",
-    "tqdm>=4.66",
-    "requests>=2.31",
-    "torchcodec>=0.8.1",
+    "librosa>=0.10",        # 音声前処理（正規化、ロード、リサンプリング）
+    "soundfile>=0.12",      # WAV の読み書き
+    "basic-pitch>=0.3",     # Audio → MIDI
+    "demucs>=4.0.0",        # ステム分離
+    "music21>=9.1",         # MIDI → MusicXML fallback 等
+    "numpy>=1.23",          # 数値演算
+    "scipy>=1.10",          # 信号処理
+    "numba>=0.57",          # librosa 用の高速化
+    "tqdm>=4.66",           # プログレスバー
+    "requests>=2.31",       # モデル取得など HTTP
+    "torch>=2.1",           # Demucs / torchaudio 実行用
+    "torchcodec>=0.8.1",    # torchaudio.save が要求（今回の ImportError 対策）
+    "setuptools>=68,<81",   # pkg_resources 提供（resampy / basic-pitch 用）かつ将来削除回避
   ]
 
   # -------------------------------------------
@@ -265,7 +267,7 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   # Package Layout
   # -------------------------------------------
   [project.urls]
-  homepage = "https://github.com/ac1965/audio2score"
+  homepage   = "https://github.com/ac1965/audio2score"
   repository = "https://github.com/ac1965/audio2score"
 
   [build-system]
@@ -273,10 +275,10 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   build-backend = "setuptools.build_meta"
 
   # -------------------------------------------
-  # Vocals: model caching & torch warnings 表示制御
+  # Tool configuration (任意メタ情報)
   # -------------------------------------------
   [tool.audio2score]
-  default_models = ["htdemucs", "htdemucs_6s"]
+  default_models     = ["htdemucs", "htdemucs_6s"]
   default_samplerate = 44100
 #+end_src
 
@@ -363,6 +365,7 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
 
   import numpy as np
   from basic_pitch.inference import predict_and_save
+  from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
   def run_basic_pitch(
@@ -382,27 +385,38 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
       onnx_path = midi_dir / "main.onnx.npy"
 
       print(f"[BasicPitch] audio={audio}")
+
+      # Basic Pitch v0.4.0 以降のシグネチャ（位置引数）に完全に合わせる:
+      # predict_and_save(
+      #     input_audio_path_list,
+      #     output_directory,
+      #     save_midi,
+      #     sonify_midi,
+      #     save_model_outputs,
+      #     save_notes,
+      #     model_or_model_path,
+      # )
       predict_and_save(
-          [str(audio)],
-          output_dir=str(midi_dir),
-          save_midi=True,
-          save_model_outputs=True,
+          [str(audio)],           # input_audio_path_list
+          str(midi_dir),          # output_directory
+          True,                   # save_midi
+          False,                  # sonify_midi (WAV 出力は不要なので False)
+          True,                   # save_model_outputs (NPZ 出力)
+          True,                   # save_notes (CSV 出力)
+          ICASSP_2022_MODEL_PATH, # 使用するモデルパス
       )
 
-      # BasicPitch の標準出力に依存しないよう、ファイル名を決め打ちに揃える場合は
-      # 必要に応じて rename する処理をここに追加する。
-      # （現状はディレクトリ内の *.mid を 1つ想定）
-
-      mids = list(midi_dir.glob("*.mid"))
+      # BasicPitch が生成した .mid を拾って main.mid に統一する
+      mids = sorted(midi_dir.glob("*.mid"))
       if not mids:
           raise FileNotFoundError(f"No MIDI file generated in {midi_dir}")
-      # 最初のものを main.mid に統一
+
+      if midi_path.exists():
+          midi_path.unlink()
       mids[0].rename(midi_path)
 
-      # モデルの生出力（オンセット・フレームなど）を保存している場合
-      # onnx_path = midi_dir / "main_model_output.npy"
+      # モデル出力の placeholder （必要なら後でちゃんと拾う）
       if not onnx_path.exists():
-          # ダミーで空の npy を置いておく（将来の解析用）
           np.save(onnx_path, np.zeros((1,)))
 
       return midi_path, onnx_path
@@ -548,19 +562,40 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
 
 
   def main() -> int:
-      p = argparse.ArgumentParser("audio2score CLI")
+      parser = argparse.ArgumentParser("audio2score CLI")
 
-      p.add_argument("audio", help="Input WAV (or converted WAV)")
-      p.add_argument("--output-dir", default="build")
-      p.add_argument("--stems", action="store_true")
-      p.add_argument("--models", nargs="*", default=["htdemucs", "htdemucs_6s"])
-      p.add_argument("--musescore-cmd", default="mscore")
-      p.add_argument("--no-pdf", action="store_true")
+      parser.add_argument("audio", help="Input WAV (or converted WAV)")
+      parser.add_argument(
+          "--output-dir",
+          default="build",
+          help="Output root directory (default: build)",
+      )
+      parser.add_argument(
+          "--stems",
+          action="store_true",
+          help="Run Demucs stem separation",
+      )
+      parser.add_argument(
+          "--models",
+          nargs="*",
+          default=["htdemucs", "htdemucs_6s"],
+          help="Demucs model names (default: htdemucs htdemucs_6s)",
+      )
+      parser.add_argument(
+          "--musescore-cmd",
+          default="mscore",
+          help="MuseScore CLI command (mscore or musescore4)",
+      )
+      parser.add_argument(
+          "--no-pdf",
+          action="store_true",
+          help="Do not export PDF (MusicXML only)",
+      )
 
-      args = p.parse_args()
+      args = parser.parse_args()
 
       audio = pathlib.Path(args.audio).resolve()
-      out = pathlib.Path(args.output-dir).resolve()
+      out = pathlib.Path(args.output_dir).resolve()
 
       result = run_pipeline(
           audio=audio,
@@ -588,10 +623,9 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   # ============================================================
   # Features:
   # - uv による Python / 仮想環境 / 依存関係の一括管理
-  # - README.org → src/*** 自動 tangle（Org Babel 側で実行）
   # - pyproject.toml / uv.lock に基づく再現可能な環境
   # - ffmpeg による音源 → WAV 変換（外部 WAV も常に正規化用に通す）
-  # - audio2score CLI（uv run 経由）による Demucs+BasicPitch 自動実行
+  # - audio2score CLI（uv run 経由）による Demucs + BasicPitch + MuseScore 自動実行
   # - build/ が存在しない状態にも完全対応
   # ============================================================
 
@@ -605,10 +639,16 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   # ------------------------------------------------------------
   # Input / Output
   # ------------------------------------------------------------
+  # 入力ファイル（拡張子は何でも可：m4a, mp3, flac, wav ...）
   INPUT ?= input.wav
+
+  # ベース名だけ取り出し（拡張子なし）
   NAME := $(notdir $(basename $(INPUT)))
+
+  # 出力ルートディレクトリ
   BUILD_DIR := build
 
+  # ffmpeg で変換後の正規化前 WAV（パイプライン入口）
   RAW_WAV := $(BUILD_DIR)/$(NAME).wav
 
   # ============================================================
@@ -619,25 +659,30 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
 
   # ------------------------------------------------------------
   # 1. Create / sync uv-managed environment
+  #    - プロジェクト単位で Python 3.10.14 を pin してから uv sync
   # ------------------------------------------------------------
   .PHONY: setup
   setup:
+  	@echo ">>> Pinning Python 3.10 for this project"
+  	$(UV) python pin 3.10.14
   	@echo ">>> Syncing uv environment (.venv / uv.lock)"
   	$(UV) sync
 
   # ------------------------------------------------------------
-  # 2. Convert INPUT → WAV with ffmpeg  (always run for normalization)
+  # 2. Convert INPUT → WAV with ffmpeg (mono / 44.1kHz)
+  #    - すべての入力を一度ここに通し、後段の正規化処理の入口にする
   # ------------------------------------------------------------
   .PHONY: ffmpeg
   ffmpeg: $(RAW_WAV)
 
   $(RAW_WAV):
   	@mkdir -p $(BUILD_DIR)
-  	@echo "[FFMPEG] Converting $(INPUT) → $@"
+  	@echo "[FFMPEG] Converting $(INPUT) → $@ (mono, 44.1kHz)"
   	ffmpeg -y -i "$(INPUT)" -ac 1 -ar 44100 "$@"
 
   # ------------------------------------------------------------
   # 3. Run audio2score pipeline (Demucs + BasicPitch + MuseScore)
+  #    - uv run 経由で src/audio2score/cli.py を実行
   # ------------------------------------------------------------
   .PHONY: score
   score: setup ffmpeg
@@ -648,6 +693,16 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   		--stems \
   		--models htdemucs htdemucs_6s \
   		--musescore-cmd mscore
+
+  # 将来用: ステム分離なしで実行したい場合の例（コメントアウト）
+  #.PHONY: score-no-stems
+  #score-no-stems: setup ffmpeg
+  #	@echo "=== Running audio2score pipeline (no stems) via uv run ==="
+  #	$(UV) run -- python -m audio2score.cli \
+  #		"$(RAW_WAV)" \
+  #		--output-dir "$(BUILD_DIR)" \
+  #		--musescore-cmd mscore \
+  #		--no-pdf
 
   # ------------------------------------------------------------
   # Clean up
@@ -663,5 +718,4 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   .PHONY: distclean
   distclean: clean clean-venv
   	rm -rf src/audio2score/*.pyc __pycache__
-
 #+end_src
