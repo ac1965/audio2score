@@ -2,7 +2,8 @@
 name = "audio2score"
 version = "0.1.0"
 description = "Audio → MIDI → MusicXML → PDF pipeline using Demucs ensemble + BasicPitch."
-requires-python = ">=3.10"
+# Python 3.11 系で固定
+requires-python = ">=3.11,<3.12"
 authors = [
   { name = "YAMASHITA, Takao" }
 ]
@@ -12,19 +13,23 @@ license = { text = "MIT" }
 # Runtime Dependencies (本番動作に必要)
 # -------------------------------------------
 dependencies = [
-  "librosa>=0.10",        # 音声前処理（正規化、ロード、リサンプリング）
-  "soundfile>=0.12",      # WAV の読み書き
-  "basic-pitch>=0.3",     # Audio → MIDI
-  "demucs>=4.0.0",        # ステム分離
-  "music21>=9.1",         # MIDI → MusicXML fallback 等
-  "numpy>=1.23",          # 数値演算
-  "scipy>=1.10",          # 信号処理
-  "numba>=0.57",          # librosa 用の高速化
-  "tqdm>=4.66",           # プログレスバー
-  "requests>=2.31",       # モデル取得など HTTP
-  "torch>=2.1",           # Demucs / torchaudio 実行用
-  "torchcodec>=0.8.1",    # torchaudio.save が要求（今回の ImportError 対策）
-  "setuptools>=68,<81",   # pkg_resources 提供（resampy / basic-pitch 用）かつ将来削除回避
+  "librosa>=0.10",          # 音声前処理（正規化、ロード、リサンプリング）
+  "soundfile>=0.12",        # WAV の読み書き
+  "basic-pitch>=0.3",       # Audio → MIDI（Py3.11 対応）
+  "demucs>=4.0.0",          # ステム分離
+  "music21>=9.1",           # MIDI → MusicXML 等
+  "numpy>=1.23",            # 数値演算
+  "scipy>=1.10",            # 信号処理
+  "numba>=0.57",            # librosa 用の高速化
+  "tqdm>=4.66",             # プログレスバー
+  "requests>=2.31",         # モデル取得など HTTP
+
+  # ★ここを重要ペアに固定（TorchCodec を避ける）
+  "torch==2.7.*",           # PyTorch 2.7 系（torchaudio 2.7 とセット）
+  "torchaudio==2.7.*",      # TorchAudio 2.7 系（この版では save/load は従来 backend）
+
+  # pkg_resources を提供しつつ、将来削除を避ける
+  "setuptools>=68,<81",     # resampy / basic-pitch 用
 ]
 
 # -------------------------------------------
@@ -37,9 +42,6 @@ dev = [
   "ruff>=0.6",
 ]
 
-# -------------------------------------------
-# Package Layout
-# -------------------------------------------
 [project.urls]
 homepage   = "https://github.com/ac1965/audio2score"
 repository = "https://github.com/ac1965/audio2score"
@@ -48,9 +50,6 @@ repository = "https://github.com/ac1965/audio2score"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-# -------------------------------------------
-# Tool configuration (任意メタ情報)
-# -------------------------------------------
 [tool.audio2score]
 default_models     = ["htdemucs", "htdemucs_6s"]
 default_samplerate = 44100
