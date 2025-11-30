@@ -2,3 +2,5 @@
 build
 requirements.txt
 src/audio2score.egg-info/
+.python-version
+uv.lock

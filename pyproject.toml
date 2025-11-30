@@ -22,7 +22,7 @@ dependencies = [
   "numba>=0.57",
   "tqdm>=4.66",
   "requests>=2.31",
-  "torch>=2.1",
+  "torchcodec>=0.8.1",
 ]
 
 # -------------------------------------------
@@ -39,8 +39,8 @@ dev = [
 # Package Layout
 # -------------------------------------------
 [project.urls]
-homepage = "https://example.com/audio2score"
-repository = "https://github.com/example/audio2score"
+homepage = "https://github.com/ac1965/audio2score"
+repository = "https://github.com/ac1965/audio2score"
 
 [build-system]
 requires = ["setuptools>=68"]
