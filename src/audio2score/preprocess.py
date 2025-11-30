@@ -14,14 +14,12 @@ def normalize_audio(input_path: pathlib.Path, sr: int = 44100) -> pathlib.Path:
     """
     y, orig_sr = librosa.load(str(input_path), sr=sr, mono=True)
     if y.size == 0:
-        raise ValueError(f"Empty audio: {input_path}")
+        raise ValueError(f"Input audio is empty: {input_path}")
 
     peak = np.max(np.abs(y))
     if peak > 0:
         y = 0.95 * y / peak
 
-    out = input_path.with_suffix(".normalized.wav")
-    sf.write(str(out), y, sr)
-
-    print(f"[preprocess] Normalized WAV written: {out}")
-    return out
+    out_path = input_path.with_suffix(".norm.wav")
+    sf.write(out_path, y, sr)
+    return out_path

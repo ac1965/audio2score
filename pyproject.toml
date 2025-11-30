@@ -2,7 +2,6 @@
 name = "audio2score"
 version = "0.1.0"
 description = "Audio → MIDI → MusicXML → PDF pipeline using Demucs ensemble + BasicPitch."
-# readme = "README.org"
 requires-python = ">=3.10"
 authors = [
   { name = "YAMASHITA, Takao" }
@@ -16,49 +15,36 @@ dependencies = [
   "librosa>=0.10",
   "soundfile>=0.12",
   "basic-pitch>=0.3",
-  "music21>=9.1",
   "demucs>=4.0.0",
+  "music21>=9.1",
   "numpy>=1.23",
   "scipy>=1.10",
   "numba>=0.57",
   "tqdm>=4.66",
   "requests>=2.31",
-  "torchcodec>=0.8.1",
+  "torch>=2.1",
 ]
 
 # -------------------------------------------
-# Optional CLI entry point
-# -------------------------------------------
-[project.scripts]
-audio2score = "audio2score.cli:main"
-
-# -------------------------------------------
-# Build system
-# -------------------------------------------
-[build-system]
-requires = ["setuptools>=65", "wheel"]
-build-backend = "setuptools.build_meta"
-
-# -------------------------------------------
-# For editable installs: src/ layout対応
-# -------------------------------------------
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-# -------------------------------------------
-# Dev dependencies (optional)
+# Optional / Dev Dependencies
 # -------------------------------------------
 [project.optional-dependencies]
 dev = [
-  "pytest",
-  "black",
-  "flake8",
-  "mypy",
-  "isort",
+  "pytest>=8.3",
+  "black>=24.4",
+  "ruff>=0.6",
 ]
+
+# -------------------------------------------
+# Package Layout
+# -------------------------------------------
+[project.urls]
+homepage = "https://example.com/audio2score"
+repository = "https://github.com/example/audio2score"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
 # -------------------------------------------
 # Vocals: model caching & torch warnings 表示制御

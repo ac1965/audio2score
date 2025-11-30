@@ -1,33 +1,46 @@
 #!/usr/bin/env python3
 import pathlib
 import subprocess
-import sys
-
-from music21 import converter
+from typing import Optional
 
 
-def run_musescore(input_path: pathlib.Path, output_path: pathlib.Path, cmd: str) -> bool:
-    call = [cmd, "-o", str(output_path), str(input_path)]
-    print(f"[musescore] {' '.join(call)}")
-    try:
-        subprocess.run(call, check=True)
-        return True
-    except Exception as e:
-        print(f"[musescore] Failed: {e}", file=sys.stderr)
-        return False
+def export_score_with_musescore(
+    midi_path: pathlib.Path,
+    output_root: pathlib.Path,
+    musescore_cmd: str = "mscore",
+    no_pdf: bool = False,
+) -> pathlib.Path:
+    """
+    MuseScore CLI を用いて
+    - MIDI → MusicXML
+    - MusicXML → PDF
+    を行う。
+    """
+    midi_path = midi_path.resolve()
+    score_dir = output_root / "score"
+    score_dir.mkdir(parents=True, exist_ok=True)
 
+    musicxml_path = score_dir / "main.musicxml"
+    pdf_path = score_dir / "main.pdf"
 
-def midi_to_musicxml(midi: pathlib.Path, xml: pathlib.Path, musescore_cmd: str):
-    if run_musescore(midi, xml, musescore_cmd):
-        return xml
+    # MIDI -> MusicXML
+    cmd_xml = [
+        musescore_cmd,
+        "-o",
+        str(musicxml_path),
+        str(midi_path),
+    ]
+    print(f"[MuseScore] MIDI → MusicXML: {' '.join(cmd_xml)}")
+    subprocess.run(cmd_xml, check=True)
 
-    print("[fallback] music21 MIDI→MusicXML")
-    score = converter.parse(str(midi))
-    score.write("musicxml", fp=str(xml))
-    return xml
+    if not no_pdf:
+        cmd_pdf = [
+            musescore_cmd,
+            "-o",
+            str(pdf_path),
+            str(musicxml_path),
+        ]
+        print(f"[MuseScore] MusicXML → PDF: {' '.join(cmd_pdf)}")
+        subprocess.run(cmd_pdf, check=True)
 
-
-def musicxml_to_pdf(xml: pathlib.Path, pdf: pathlib.Path, musescore_cmd: str):
-    if run_musescore(xml, pdf, musescore_cmd):
-        return pdf
-    return None
+    return musicxml_path
