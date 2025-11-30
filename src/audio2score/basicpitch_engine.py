@@ -1,55 +1,49 @@
 #!/usr/bin/env python3
-"""
-Wrapper for BasicPitch.
-Generates:
-- main MIDI
-- per-stem MIDI
-"""
-
 import pathlib
-import os
-from typing import Dict
+from typing import Tuple
 
+import numpy as np
 from basic_pitch.inference import predict_and_save
-from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
-def run_basic_pitch(wav: pathlib.Path, out_root: pathlib.Path) -> pathlib.Path:
-    stem = wav.stem
-    out_root.mkdir(parents=True, exist_ok=True)
+def run_basic_pitch(
+    audio: pathlib.Path,
+    output_root: pathlib.Path,
+) -> Tuple[pathlib.Path, pathlib.Path]:
+    """
+    BasicPitch による Audio→MIDI 変換。
+    - audio: 正規化済み WAV
+    - output_root/midi/main.mid として保存
+    """
+    audio = audio.resolve()
+    midi_dir = output_root / "midi"
+    midi_dir.mkdir(parents=True, exist_ok=True)
 
-    # clean old files
-    for ext in ["mid", "csv", "npz"]:
-        p = out_root / f"{stem}_basic_pitch.{ext}"
-        if p.exists():
-            p.unlink()
+    midi_path = midi_dir / "main.mid"
+    onnx_path = midi_dir / "main.onnx.npy"
 
+    print(f"[BasicPitch] audio={audio}")
     predict_and_save(
-        audio_path_list=[str(wav)],
-        output_directory=str(out_root),
+        [str(audio)],
+        output_dir=str(midi_dir),
         save_midi=True,
-        sonify_midi=False,
-        save_model_outputs=False,
-        save_notes=False,
-        model_or_model_path=ICASSP_2022_MODEL_PATH,
+        save_model_outputs=True,
     )
 
-    midi = out_root / f"{stem}_basic_pitch.mid"
-    return midi
+    # BasicPitch の標準出力に依存しないよう、ファイル名を決め打ちに揃える場合は
+    # 必要に応じて rename する処理をここに追加する。
+    # （現状はディレクトリ内の *.mid を 1つ想定）
 
+    mids = list(midi_dir.glob("*.mid"))
+    if not mids:
+        raise FileNotFoundError(f"No MIDI file generated in {midi_dir}")
+    # 最初のものを main.mid に統一
+    mids[0].rename(midi_path)
 
-def run_basic_pitch_per_stems(stems: Dict[str, pathlib.Path], out_root: pathlib.Path):
+    # モデルの生出力（オンセット・フレームなど）を保存している場合
+    # onnx_path = midi_dir / "main_model_output.npy"
+    if not onnx_path.exists():
+        # ダミーで空の npy を置いておく（将来の解析用）
+        np.save(onnx_path, np.zeros((1,)))
 
-    midi_root = out_root / "midi"
-    midi_root.mkdir(parents=True, exist_ok=True)
-
-    result = {}
-
-    for stem_name, wav in stems.items():
-        d = midi_root / stem_name
-        d.mkdir(parents=True, exist_ok=True)
-
-        midi = run_basic_pitch(wav, d)
-        result[stem_name] = midi
-
-    return result
+    return midi_path, onnx_path

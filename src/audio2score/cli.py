@@ -6,7 +6,7 @@ import sys
 from .pipeline import run_pipeline
 
 
-def main():
+def main() -> int:
     p = argparse.ArgumentParser("audio2score CLI")
 
     p.add_argument("audio", help="Input WAV (or converted WAV)")
@@ -19,7 +19,7 @@ def main():
     args = p.parse_args()
 
     audio = pathlib.Path(args.audio).resolve()
-    out = pathlib.Path(args.output_dir).resolve()
+    out = pathlib.Path(args.output-dir).resolve()
 
     result = run_pipeline(
         audio=audio,
@@ -32,6 +32,7 @@ def main():
 
     print("=== DONE ===")
     print(result)
+    return 0
 
 
 if __name__ == "__main__":

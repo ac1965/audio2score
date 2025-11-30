@@ -1,79 +1,72 @@
 #!/usr/bin/env python3
-"""
-Entire audio2score pipeline.
-- Normalize
-- Demucs (optional)
-- BasicPitch (main + stems)
-- MusicXML
-- PDF
-"""
-
 import pathlib
-from typing import List, Dict, Optional
+from dataclasses import dataclass
+from typing import List, Optional
 
 from .preprocess import normalize_audio
 from .demucs_engine import separate_stems
-from .basicpitch_engine import run_basic_pitch, run_basic_pitch_per_stems
-from .score_export import midi_to_musicxml, musicxml_to_pdf
+from .basicpitch_engine import run_basic_pitch
+from .score_export import export_score_with_musescore
+
+
+@dataclass
+class PipelineResult:
+    raw_wav: pathlib.Path
+    normalized_wav: pathlib.Path
+    stems_dir: pathlib.Path
+    midi_path: pathlib.Path
+    musicxml_path: pathlib.Path
+    pdf_path: Optional[pathlib.Path]
 
 
 def run_pipeline(
     audio: pathlib.Path,
     output_root: pathlib.Path,
-    do_stems: bool,
-    models: List[str],
-    musescore_cmd: str,
-    no_pdf: bool,
-) -> Dict:
-
-    print("=== audio2score pipeline start ===")
-    print(f"Input Audio : {audio}")
-    print(f"Output Root : {output_root}")
-    print(f"Stems       : {do_stems} (models={models})")
-    print(f"MuseScore   : {musescore_cmd}")
-    print(f"PDF Export  : {not no_pdf}")
-
+    do_stems: bool = True,
+    models: Optional[List[str]] = None,
+    musescore_cmd: str = "mscore",
+    no_pdf: bool = False,
+) -> PipelineResult:
+    """
+    Audio → (normalize) → Demucs → BasicPitch → MuseScore
+    を一括実行する高レベルパイプライン。
+    """
+    audio = audio.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # 1. Normalize
+    # 1. 正規化された WAV を用意
+    print(f"[Pipeline] Input: {audio}")
     normalized = normalize_audio(audio)
 
-    stem_midis = {}
-
-    # 2. Demucs
+    # 2. Demucs でステム分離（任意）
+    stems_dir = output_root / "stems"
     if do_stems:
-        stems = separate_stems(normalized, output_root, models=models)
-        # 3. BasicPitch for each stem
-        stem_midis = run_basic_pitch_per_stems(stems, output_root)
+        if models is None:
+            models = ["htdemucs", "htdemucs_6s"]
+        stems_dir = separate_stems(normalized, models, output_root)
+    else:
+        stems_dir.mkdir(parents=True, exist_ok=True)
 
-        # 4. Export for stems
-        for stem_name, midi in stem_midis.items():
-            xml = output_root / "xml" / stem_name / f"{midi.stem}.musicxml"
-            pdf = output_root / "pdf" / stem_name / f"{midi.stem}.pdf"
+    # 3. BasicPitch でメロディ抽出（Audio → MIDI）
+    midi_path, _onnx_path = run_basic_pitch(normalized, output_root)
 
-            xml.parent.mkdir(parents=True, exist_ok=True)
-            pdf.parent.mkdir(parents=True, exist_ok=True)
+    # 4. MuseScore で楽譜生成
+    musicxml_path = export_score_with_musescore(
+        midi_path=midi_path,
+        output_root=output_root,
+        musescore_cmd=musescore_cmd,
+        no_pdf=no_pdf,
+    )
 
-            midi_to_musicxml(midi, xml, musescore_cmd)
-            if not no_pdf:
-                musicxml_to_pdf(xml, pdf, musescore_cmd)
+    pdf_path = musicxml_path.with_suffix(".pdf")
+    if no_pdf or not pdf_path.exists():
+        pdf_path = None
 
-    # 5. BasicPitch for main
-    midi_main = run_basic_pitch(normalized, output_root / "midi" / "main")
-
-    # 6. Export main
-    xml_main = output_root / f"{midi_main.stem}.musicxml"
-    midi_to_musicxml(midi_main, xml_main, musescore_cmd)
-
-    pdf_main = None
-    if not no_pdf:
-        pdf_main = output_root / f"{midi_main.stem}.pdf"
-        musicxml_to_pdf(xml_main, pdf_main, musescore_cmd)
-
-    return {
-        "normalized": normalized,
-        "main_midi": midi_main,
-        "main_xml": xml_main,
-        "main_pdf": pdf_main,
-        "stems_midi": stem_midis,
-    }
+    return PipelineResult(
+        raw_wav=audio,
+        normalized_wav=normalized,
+        stems_dir=stems_dir,
+        midi_path=midi_path,
+        musicxml_path=musicxml_path,
+        pdf_path=pdf_path,
+    )

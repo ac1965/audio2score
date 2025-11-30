@@ -1,48 +1,83 @@
-#+title: audio2score: Audio → MIDI → MusicXML → PDF Pipeline
+#+title: audio2score: Audio → MIDI → MusicXML → PDF
 #+author: YAMASHITA, Takao
-#+PROPERTY: header-args :noweb no-export :mkdirp yes
+#+language: ja
+#+property: header-args :noweb no-export :mkdirp yes
 
 * Overview
 
-audio2score は以下の *完全自動パイプライン* を提供します：
+本プロジェクトは、 *1つの音源ファイル* から、以下のパイプラインを自動実行するための
+Python ベースのツール群と Makefile を提供します。
 
-1. 音源ファイル（WAV/MP3/M4A...）
-2. ffmpeg により WAV へ統一
-3. 正規化（normalize）
-4. Demucs（複数モデル + アンサンブル）で STEM 分離
-5. BasicPitch で main + stems の MIDI 抽出
-6. MuseScore or music21 で MusicXML 化
-7. PDF 生成（オプション）
+1. 入力音源（WAV / m4a / mp3 / flac など）を ffmpeg で
+   - mono
+   - 44.1kHz
+   - 正規化（ピーク合わせ）
+   された WAV に変換する。
+2. Demucs アンサンブル（複数モデル）でステム分離（vocals / drums / bass / other 等）。
+3. BasicPitch によるメロディラインの推定（Audio → MIDI）。
+4. MuseScore CLI による MIDI → MusicXML / PDF 変換。
+5. 生成されたファイル（WAV / MIDI / MusicXML / PDF）を =build/= 以下に体系的に保存。
 
-* Requirementsy
+音源から楽譜（PDF）までの一連の処理を *再現可能な形* で実行することを目的としています。
+
+* Repository Layout
+
+本プロジェクトは、Org Babel の :tangle 機能によって
+=README.org= からソースコードや設定ファイルを生成します。
+
+- =README.org= から tangle されるファイル：
+  - =pyproject.toml=      # パッケージメタデータ / 依存定義
+  - =src/audio2score/=    # Python パッケージ本体
+  - =Makefile=            # フルパイプライン用 Makefile（uv 前提）
+
+ディレクトリ構成（想定）:
+
+#+begin_src text
+  .
+  ├── README.org                 # 本ドキュメント（:tangle によりコードを生成）
+  ├── pyproject.toml             # PEP 621 ベースのプロジェクト定義
+  ├── src/
+  │   └── audio2score/
+  │       ├── __init__.py
+  │       ├── preprocess.py        # 音声正規化（WAV mono / 44.1kHz）
+  │       ├── demucs_engine.py     # Demucs アンサンブル呼び出し
+  │       ├── basicpitch_engine.py # BasicPitch による Audio→MIDI
+  │       ├── score_export.py      # MIDI → MusicXML / PDF Export
+  │       ├── pipeline.py          # 全パイプライン制御
+  │       └── cli.py               # コマンドラインエントリポイント
+  ├── Makefile                     # uv ベースのフルパイプライン Makefile
+  └── build/                       # 出力（WAV/MIDI/MusicXML/PDF）
+#+end_src
+
+* Requirements
 
 本プロジェクトは、macOS を中心に、以下の条件を満たす環境で動作します。
 
 ** OS・Python
 
 - macOS 13 Ventura / 14 Sonoma / 15 Sequoia / 16 Tahoe （Apple Silicon 推奨）
-- Python 3.10 系（BasicPitch・Demucs の安定動作のため必須）
-  - pyenv による Python 3.10.x のインストールを推奨
-  - Homebrew python3 は 3.12 系になるため非推奨
+- Python 3.10 系
+  - 詳細なセットアップ手順は *Setup* 章を参照してください。
 
 ** Required Applications
 
 - ffmpeg  8.x
   - 入力音源を WAV（mono / 44.1kHz）へ統一するために必須
   - Homebrew インストール例：
-    #+begin_src bash
-      brew install ffmpeg
-    #+end_src
 
-- MuseScore 3 / 4
-  - MusicXML → PDF 生成のために必須
-  - CLI コマンド名：
-    - MuseScore 3: mscore
-    - MuseScore 4: musescore4
+#+begin_src bash
+  brew install ffmpeg
+#+end_src
+
+- MuseScore
+  - MuseScore 3 または MuseScore 4 のいずれか（CLI が利用可能であること）
+  - macOS の場合の代表的なコマンド名：
+    - MuseScore 3: =mscore=
+    - MuseScore 4: =musescore4=
 
 ** Python Package Dependencies (PEP 621, managed via pyproject.toml)
 
-本ツールは以下の Python ライブラリを利用します。すべて ``pip install .`` によって自動インストールされます。
+本ツールは以下の Python ライブラリを利用します。すべて =uv sync= によって自動インストールされます。
 
 | パッケージ        | 用途                                            |
 |-------------------+--------------------------------------------------|
@@ -51,143 +86,148 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 | basic-pitch>=0.3  | メロディ推定（Audio→MIDI）                      |
 | demucs>=4.0.0     | マルチモデル・アンサンブルによるステム分離      |
 | music21>=9.1      | MIDI → MusicXML（MuseScore 失敗時の fallback）  |
-| numpy>=1.23       | 基本演算                                          |
-| scipy>=1.10       | 信号処理                                          |
-| numba>=0.57       | librosa 速度最適化                               |
-| tqdm>=4.66        | プログレスバー                                   |
-| requests>=2.31    | モデルの自動ダウンロード（Demucs）               |
-| torchcodec>=0.8.1 | torchaudio の save() 呼び出しで必要になる場合あり |
+| numpy>=1.23       | 基本演算                                        |
+| scipy>=1.10       | 信号処理                                        |
+| numba>=0.57       | librosa 速度最適化                              |
+| tqdm>=4.66        | プログレスバー                                  |
+| requests>=2.31    | モデルの自動ダウンロード（Demucs）             |
+| torch>=2.1        | Demucs 実行用                                    |
 
-** Demucs Model
+** Demucs Models
 
-初回実行時に以下のモデルがダウンロードされます：
+Demucs では、以下のモデルをアンサンブルとして利用します。
 
 - =htdemucs=
 - =htdemucs_6s=
 
 これらは *高精度ステム分離* のベーシックセットであり、本ツールの
-``--models htdemucs htdemucs_6s`` デフォルト設定に対応しています。
+=--models htdemucs htdemucs_6s= デフォルト設定に対応しています。
 
-** MuseScore CLI
+** uv ベースの Python 環境（推奨）
 
-以下のコマンドで CLI が動作することを確認してください。
+- 依存関係と仮想環境の管理には Rust 製 Python パッケージマネージャ *uv* を利用します。
+- uv のインストール例（Homebrew）:
 
 #+begin_src bash
-  mscore --help      # MuseScore 3
-  # または
-  musescore4 --help  # MuseScore 4
+  brew install uv
 #+end_src
 
-** ffmpeg
+以降の具体的なセットアップ手順は次節 *Setup* で説明します。
+
+* Setup（uv ベースの環境構築）
+
+ここでは、uv を用いて Python 3.10 系の再現可能な環境を構築する手順を示します。
+
+** 1. uv のインストール確認
+
+すでに uv をインストール済みであればこのステップは省略できます。
+
+#+begin_src bash
+  uv --version
+#+end_src
+
+バージョンが表示されない場合は、例として Homebrew からインストールします。
+
+#+begin_src bash
+  brew install uv
+#+end_src
+
+** 2. Python 3.10 系の利用を明示（uv python pin）
+
+プロジェクトルート（=README.org= や =pyproject.toml= があるディレクトリ）で実行します。
+
+- Python 3.10 系
+  - 本プロジェクトでは *uv* による Python / 仮想環境管理を前提とします。
+  - =uv python pin 3.10= などで、このプロジェクトを Python 3.10.x に固定することを推奨します。
+
+#+begin_src bash
+  #  Python のリストを表示
+  uv python version
+
+  # プロジェクトで使用する Python を 3.10 系に固定
+  uv python pin 3.10
+#+end_src
+
+これにより、.python-version に相当する情報が uv 側に記録され、
+このディレクトリ配下では常に Python 3.10.x が使用されます。
+
+** 3. 依存関係の同期（uv sync）
+
+=pyproject.toml= の依存関係定義にもとづいて、仮想環境（=.venv=）と
+ロックファイル（=uv.lock=）を作成します。
+
+#+begin_src bash
+  # プロジェクトルートで実行
+  uv sync
+#+end_src
+
+実行後、以下が生成されます。
+
+- =.venv/=     … uv 管理の仮想環境
+- =uv.lock=    … 依存関係のバージョンを固定したロックファイル
+
+** 4. 外部コマンド（ffmpeg / MuseScore）の確認
 
 #+begin_src bash
   ffmpeg -version
+
+  # MuseScore 3 利用時
+  mscore --help
+
+  # MuseScore 4 利用時
+  musescore4 --help
 #+end_src
 
-** optional
+それぞれがエラーなくヘルプやバージョン情報を表示すれば OK です。
 
-- Intel MKL（numpy MKL 版）
-- Python 3.10 + numba による librosa 高速化
-- Apple Silicon 上での torch-neon 最適化
+** 5. 初回のパイプライン実行
 
-* Project Structure
+あらかじめ、任意の音源ファイル（例：=env/input/foo.m4a=）を用意します。
 
-本プロジェクトは、Org Babel の :tangle 機能によって
-ソースコードを自動生成する “Literate Programming” 形式で構築されます。
+#+begin_src bash
+  # 依存関係が未同期の場合は先に uv sync を実施
+  uv sync
 
-生成されるディレクトリ構成は以下のとおりです。
-
-#+begin_src text
-  Project Root (Git repository root)/
-  ├── README.org                 # 本ドキュメント（:tangle によりコードを生成）
-  ├── Makefile                   # ffmpeg → 正規化 → Demucs → BasicPitch → Export の統合ビルド
-  ├── pyproject.toml             # audio2score パッケージ定義（依存関係＋CLI設定）
-  ├── src/
-  │   └── audio2score/
-  │       ├── cli.py             # コマンドラインインターフェース
-  │       ├── pipeline.py        # 全処理パイプライン（正規化・Demucs・MIDI抽出・PDF）
-  │       ├── preprocess.py      # WAV 正規化処理（モノラル・SR変換・ピーク正規化）
-  │       ├── demucs_engine.py   # Demucs アンサンブル処理（モデル数可変・STEM出力）
-  │       ├── basicpitch_engine.py # BasicPitch メイン＋STEM の MIDI 生成
-  │       └── score_export.py    # MusicXML / PDF 出力（MuseScore / music21）
-  └── build/                     # 実行時に生成（WAV / STEMs / MIDI / XML / PDF を格納）
+  # Makefile を利用したフルパイプライン実行例
+  make score INPUT="env/input/foo.m4a"
 #+end_src
 
-*Notes:*
-- =src/audio2score/*.py= はすべて README.org 内のコードブロックから自動生成されます。
-- =build/= は =make score= 実行時に作成され、WAV・STEMs・MIDI・MusicXML・PDF が格納されます。
+初回実行時は、Demucs のモデル（=htdemucs=, =htdemucs_6s=）が自動ダウンロードされるため、
+ネットワーク環境とストレージの空き容量をあらかじめ確保してください。
 
-* Workflow Overview (Based on CLI Options)
+* Usage（コマンドの使い方）
 
-以下は =audio2score= の CLI オプションに応じて
-処理フローがどのように分岐するかを示す軽量 Mermaid 図です。
-
-#+begin_src mermaid
-  flowchart TD
-
-  %% Entry
-  A["User Input\n(audio file)"] --> B["FFmpeg\nConvert to WAV"]
-  B --> C["Normalize WAV"]
-
-  %% Option branch: STEMS
-  C -->|--stems=false| M1["BasicPitch\nMain MIDI Only"]
-  C -->|--stems=true| D["Demucs\n(Ensemble Models)"]
-
-  %% Demucs → MIDI
-  D --> E["Per-Stem WAVs"]
-  E --> F["BasicPitch\nPer-Stem MIDI"]
-
-  %% Main MIDI always processed
-  C --> M1
-  M1 --> MXML_MAIN["MusicXML Export\n(main)"]
-
-  %% Per-stem MIDI → XML
-  F --> MXML_STEM["MusicXML Export\n(stems)"]
-
-  %% PDF branch
-  MXML_MAIN -->|--no-pdf=false| PDF_MAIN["PDF Export (main)"]
-  MXML_STEM -->|--no-pdf=false| PDF_STEMS["PDF Export (stems)"]
-
-  %% no-pdf option
-  MXML_MAIN -->|--no-pdf=true| OUT_MAIN["Output main XML only"]
-  MXML_STEM -->|--no-pdf=true| OUT_STEMS["Output stem XML only"]
-
-  %% Final merge
-  PDF_MAIN --> Z["Build Directory"]
-  PDF_STEMS --> Z
-  OUT_MAIN --> Z
-  OUT_STEMS --> Z
-#+end_src
-
-この図により、以下の点が明確になります：
-
-- *--stems* を付けると *Demucs → 各 stem → BasicPitch* の分岐が発生
-- *--no-pdf* により出力が PDF まで行くかどうか制御
-- メイン MIDI は **必ず** BasicPitch により生成
-- MusicXML はメイン／STEM いずれも生成される（PDF は任意）
-
-* Example
-
-| C     | Normalize WAV  | [[file:./build/おはよう.normalized.wav]]                       |
-| M1    | Main MIDI Only | [[file:./build/midi/main/おはよう.normalized_basic_pitch.mid]] |
-| Merge | OUT_STEMS       | [[file:./build/おはよう.normalized_basic_pitch.musicxml]]      |
-|       | PDF_MAIN        | [[file:./build/おはよう.normalized_basic_pitch.pdf]]           |
-
-* pyproject.toml
-
-- pyproject.toml → requirements.txt を自動生成
+** Makefile 経由で実行
 
 #+begin_src sh
-  pip install pip-tools
-  pip-compile pyproject.toml --output-file=requirements.txt
+  # WAV 変換 + パイプライン実行（uv + Makefile 前提）
+  make score INPUT="env/input/foo.m4a"
+
+  # STEM 無しで main MIDI のみ（将来の拡張用の例）
+  make score INPUT="env/input/foo.wav" STEMS=0
 #+end_src
+
+** uv run から直接 CLI を叩く例
+
+=make score= は内部で =uv run -- python -m audio2score.cli ...= を呼び出します。
+Makefile を介さず直接実行したい場合は、以下のようにします。
+
+#+begin_src bash
+  uv run -- python -m audio2score.cli \
+    "build/foo.wav" \
+    --output-dir "build" \
+    --stems \
+    --models htdemucs htdemucs_6s \
+    --musescore-cmd mscore
+#+end_src
+
+* pyproject.toml
 
 #+begin_src toml :tangle pyproject.toml
   [project]
   name = "audio2score"
   version = "0.1.0"
   description = "Audio → MIDI → MusicXML → PDF pipeline using Demucs ensemble + BasicPitch."
-  # readme = "README.org"
   requires-python = ">=3.10"
   authors = [
     { name = "YAMASHITA, Takao" }
@@ -201,49 +241,36 @@ audio2score は以下の *完全自動パイプライン* を提供します：
     "librosa>=0.10",
     "soundfile>=0.12",
     "basic-pitch>=0.3",
-    "music21>=9.1",
     "demucs>=4.0.0",
+    "music21>=9.1",
     "numpy>=1.23",
     "scipy>=1.10",
     "numba>=0.57",
     "tqdm>=4.66",
     "requests>=2.31",
-    "torchcodec>=0.8.1",
+    "torch>=2.1",
   ]
 
   # -------------------------------------------
-  # Optional CLI entry point
-  # -------------------------------------------
-  [project.scripts]
-  audio2score = "audio2score.cli:main"
-
-  # -------------------------------------------
-  # Build system
-  # -------------------------------------------
-  [build-system]
-  requires = ["setuptools>=65", "wheel"]
-  build-backend = "setuptools.build_meta"
-
-  # -------------------------------------------
-  # For editable installs: src/ layout対応
-  # -------------------------------------------
-  [tool.setuptools]
-  package-dir = {"" = "src"}
-
-  [tool.setuptools.packages.find]
-  where = ["src"]
-
-  # -------------------------------------------
-  # Dev dependencies (optional)
+  # Optional / Dev Dependencies
   # -------------------------------------------
   [project.optional-dependencies]
   dev = [
-    "pytest",
-    "black",
-    "flake8",
-    "mypy",
-    "isort",
+    "pytest>=8.3",
+    "black>=24.4",
+    "ruff>=0.6",
   ]
+
+  # -------------------------------------------
+  # Package Layout
+  # -------------------------------------------
+  [project.urls]
+  homepage = "https://example.com/audio2score"
+  repository = "https://github.com/example/audio2score"
+
+  [build-system]
+  requires = ["setuptools>=68"]
+  build-backend = "setuptools.build_meta"
 
   # -------------------------------------------
   # Vocals: model caching & torch warnings 表示制御
@@ -253,17 +280,8 @@ audio2score は以下の *完全自動パイプライン* を提供します：
   default_samplerate = 44100
 #+end_src
 
-* Usage
-
-#+begin_src sh
-  # WAV 変換 + パイプライン実行
-  make score INPUT="env/input/foo.m4a"
-
-  # STEM 無しで main MIDI のみ
-  make score INPUT="env/input/foo.wav" STEMS=0
-#+end_src
-
 * Python Source Files
+
 ** preprocess.py
 
 #+begin_src python :tangle src/audio2score/preprocess.py
@@ -283,168 +301,111 @@ audio2score は以下の *完全自動パイプライン* を提供します：
       """
       y, orig_sr = librosa.load(str(input_path), sr=sr, mono=True)
       if y.size == 0:
-          raise ValueError(f"Empty audio: {input_path}")
+          raise ValueError(f"Input audio is empty: {input_path}")
 
       peak = np.max(np.abs(y))
       if peak > 0:
           y = 0.95 * y / peak
 
-      out = input_path.with_suffix(".normalized.wav")
-      sf.write(str(out), y, sr)
-
-      print(f"[preprocess] Normalized WAV written: {out}")
-      return out
+      out_path = input_path.with_suffix(".norm.wav")
+      sf.write(out_path, y, sr)
+      return out_path
 #+end_src
 
 ** demucs_engine.py
 
 #+begin_src python :tangle src/audio2score/demucs_engine.py
   #!/usr/bin/env python3
-  """
-  Demucs ensemble stem separation.
-  Handles variable number of stems across models
-  (4-stem, 6-stem, etc.)
-  """
-
   import pathlib
-  from typing import Dict, List
-
-  import numpy as np
-  import soundfile as sf
-  import torch
-
-  from demucs.pretrained import get_model
-  from demucs.apply import apply_model
-  from demucs.audio import convert_audio
-
-
-  def _load_audio(path: pathlib.Path):
-      wav, sr = sf.read(str(path), always_2d=True)
-      wav_t = torch.tensor(wav.T, dtype=torch.float32).unsqueeze(0)
-      return wav_t, sr
+  import subprocess
+  from typing import List
 
 
   def separate_stems(
-      wav_path: pathlib.Path,
-      out_dir: pathlib.Path,
+      audio: pathlib.Path,
       models: List[str],
-      shifts: int = 1,
-      overlap: float = 0.25,
-  ) -> Dict[str, pathlib.Path]:
+      output_root: pathlib.Path,
+  ) -> pathlib.Path:
+      """
+      Demucs を使ってステム分離を行う。
+      - models: ["htdemucs", "htdemucs_6s"] など
+      - output_root/stems/{model}/ 以下に各ステムを保存
+      """
+      audio = audio.resolve()
+      stems_dir = output_root / "stems"
+      stems_dir.mkdir(parents=True, exist_ok=True)
 
-      print(f"[demucs] Loading: {wav_path}")
-      wav, sr = _load_audio(wav_path)
+      for model in models:
+          model_out = stems_dir / model
+          model_out.mkdir(parents=True, exist_ok=True)
 
-      ensembles = []
-      sample_rate = None
+          cmd = [
+              "demucs",
+              "-n",
+              model,
+              "-o",
+              str(model_out),
+              str(audio),
+          ]
 
-      for model_name in models:
-          print(f"[demucs] Running model: {model_name}")
-          model = get_model(model_name)
-          model.eval()
+          print(f"[Demucs] Running: {' '.join(cmd)}")
+          subprocess.run(cmd, check=True)
 
-          sample_rate = model.samplerate
-          wav_m = convert_audio(wav, sr, sample_rate, model.audio_channels)
-
-          with torch.no_grad():
-              pred = apply_model(
-                  model, wav_m,
-                  shifts=shifts,
-                  split=True,
-                  overlap=overlap,
-              )[0]
-
-          ensembles.append(pred.cpu().numpy())
-
-      # Align stem dimensions
-      max_stems = max(e.shape[0] for e in ensembles)
-      aligned = []
-      for e in ensembles:
-          if e.shape[0] < max_stems:
-              pad = np.zeros(
-                  (max_stems - e.shape[0], e.shape[1], e.shape[2]),
-                  dtype=e.dtype
-              )
-              e = np.concatenate([e, pad], axis=0)
-          aligned.append(e)
-
-      avg = sum(aligned) / len(aligned)
-
-      out_root = out_dir / "stems" / "ensemble"
-      out_root.mkdir(parents=True, exist_ok=True)
-
-      print(f"[demucs] Saving stems → {out_root}")
-
-      paths = {}
-      for i in range(max_stems):
-          stem_name = f"stem{i}"
-          audio = avg[i].T
-          outf = out_root / f"{wav_path.stem}_{stem_name}.wav"
-          sf.write(str(outf), audio, sample_rate)
-          print(f"[demucs]   {stem_name}: {outf}")
-          paths[stem_name] = outf
-
-      return paths
+      return stems_dir
 #+end_src
 
 ** basicpitch_engine.py
 
 #+begin_src python :tangle src/audio2score/basicpitch_engine.py
   #!/usr/bin/env python3
-  """
-  Wrapper for BasicPitch.
-  Generates:
-  - main MIDI
-  - per-stem MIDI
-  """
-
   import pathlib
-  import os
-  from typing import Dict
+  from typing import Tuple
 
+  import numpy as np
   from basic_pitch.inference import predict_and_save
-  from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
-  def run_basic_pitch(wav: pathlib.Path, out_root: pathlib.Path) -> pathlib.Path:
-      stem = wav.stem
-      out_root.mkdir(parents=True, exist_ok=True)
+  def run_basic_pitch(
+      audio: pathlib.Path,
+      output_root: pathlib.Path,
+  ) -> Tuple[pathlib.Path, pathlib.Path]:
+      """
+      BasicPitch による Audio→MIDI 変換。
+      - audio: 正規化済み WAV
+      - output_root/midi/main.mid として保存
+      """
+      audio = audio.resolve()
+      midi_dir = output_root / "midi"
+      midi_dir.mkdir(parents=True, exist_ok=True)
 
-      # clean old files
-      for ext in ["mid", "csv", "npz"]:
-          p = out_root / f"{stem}_basic_pitch.{ext}"
-          if p.exists():
-              p.unlink()
+      midi_path = midi_dir / "main.mid"
+      onnx_path = midi_dir / "main.onnx.npy"
 
+      print(f"[BasicPitch] audio={audio}")
       predict_and_save(
-          audio_path_list=[str(wav)],
-          output_directory=str(out_root),
+          [str(audio)],
+          output_dir=str(midi_dir),
           save_midi=True,
-          sonify_midi=False,
-          save_model_outputs=False,
-          save_notes=False,
-          model_or_model_path=ICASSP_2022_MODEL_PATH,
+          save_model_outputs=True,
       )
 
-      midi = out_root / f"{stem}_basic_pitch.mid"
-      return midi
+      # BasicPitch の標準出力に依存しないよう、ファイル名を決め打ちに揃える場合は
+      # 必要に応じて rename する処理をここに追加する。
+      # （現状はディレクトリ内の *.mid を 1つ想定）
 
+      mids = list(midi_dir.glob("*.mid"))
+      if not mids:
+          raise FileNotFoundError(f"No MIDI file generated in {midi_dir}")
+      # 最初のものを main.mid に統一
+      mids[0].rename(midi_path)
 
-  def run_basic_pitch_per_stems(stems: Dict[str, pathlib.Path], out_root: pathlib.Path):
+      # モデルの生出力（オンセット・フレームなど）を保存している場合
+      # onnx_path = midi_dir / "main_model_output.npy"
+      if not onnx_path.exists():
+          # ダミーで空の npy を置いておく（将来の解析用）
+          np.save(onnx_path, np.zeros((1,)))
 
-      midi_root = out_root / "midi"
-      midi_root.mkdir(parents=True, exist_ok=True)
-
-      result = {}
-
-      for stem_name, wav in stems.items():
-          d = midi_root / stem_name
-          d.mkdir(parents=True, exist_ok=True)
-
-          midi = run_basic_pitch(wav, d)
-          result[stem_name] = midi
-
-      return result
+      return midi_path, onnx_path
 #+end_src
 
 ** score_export.py
@@ -453,123 +414,129 @@ audio2score は以下の *完全自動パイプライン* を提供します：
   #!/usr/bin/env python3
   import pathlib
   import subprocess
-  import sys
-
-  from music21 import converter
+  from typing import Optional
 
 
-  def run_musescore(input_path: pathlib.Path, output_path: pathlib.Path, cmd: str) -> bool:
-      call = [cmd, "-o", str(output_path), str(input_path)]
-      print(f"[musescore] {' '.join(call)}")
-      try:
-          subprocess.run(call, check=True)
-          return True
-      except Exception as e:
-          print(f"[musescore] Failed: {e}", file=sys.stderr)
-          return False
+  def export_score_with_musescore(
+      midi_path: pathlib.Path,
+      output_root: pathlib.Path,
+      musescore_cmd: str = "mscore",
+      no_pdf: bool = False,
+  ) -> pathlib.Path:
+      """
+      MuseScore CLI を用いて
+      - MIDI → MusicXML
+      - MusicXML → PDF
+      を行う。
+      """
+      midi_path = midi_path.resolve()
+      score_dir = output_root / "score"
+      score_dir.mkdir(parents=True, exist_ok=True)
 
+      musicxml_path = score_dir / "main.musicxml"
+      pdf_path = score_dir / "main.pdf"
 
-  def midi_to_musicxml(midi: pathlib.Path, xml: pathlib.Path, musescore_cmd: str):
-      if run_musescore(midi, xml, musescore_cmd):
-          return xml
+      # MIDI -> MusicXML
+      cmd_xml = [
+          musescore_cmd,
+          "-o",
+          str(musicxml_path),
+          str(midi_path),
+      ]
+      print(f"[MuseScore] MIDI → MusicXML: {' '.join(cmd_xml)}")
+      subprocess.run(cmd_xml, check=True)
 
-      print("[fallback] music21 MIDI→MusicXML")
-      score = converter.parse(str(midi))
-      score.write("musicxml", fp=str(xml))
-      return xml
+      if not no_pdf:
+          cmd_pdf = [
+              musescore_cmd,
+              "-o",
+              str(pdf_path),
+              str(musicxml_path),
+          ]
+          print(f"[MuseScore] MusicXML → PDF: {' '.join(cmd_pdf)}")
+          subprocess.run(cmd_pdf, check=True)
 
-
-  def musicxml_to_pdf(xml: pathlib.Path, pdf: pathlib.Path, musescore_cmd: str):
-      if run_musescore(xml, pdf, musescore_cmd):
-          return pdf
-      return None
+      return musicxml_path
 #+end_src
 
 ** pipeline.py
 
 #+begin_src python :tangle src/audio2score/pipeline.py
   #!/usr/bin/env python3
-  """
-  Entire audio2score pipeline.
-  - Normalize
-  - Demucs (optional)
-  - BasicPitch (main + stems)
-  - MusicXML
-  - PDF
-  """
-
   import pathlib
-  from typing import List, Dict, Optional
+  from dataclasses import dataclass
+  from typing import List, Optional
 
   from .preprocess import normalize_audio
   from .demucs_engine import separate_stems
-  from .basicpitch_engine import run_basic_pitch, run_basic_pitch_per_stems
-  from .score_export import midi_to_musicxml, musicxml_to_pdf
+  from .basicpitch_engine import run_basic_pitch
+  from .score_export import export_score_with_musescore
+
+
+  @dataclass
+  class PipelineResult:
+      raw_wav: pathlib.Path
+      normalized_wav: pathlib.Path
+      stems_dir: pathlib.Path
+      midi_path: pathlib.Path
+      musicxml_path: pathlib.Path
+      pdf_path: Optional[pathlib.Path]
 
 
   def run_pipeline(
       audio: pathlib.Path,
       output_root: pathlib.Path,
-      do_stems: bool,
-      models: List[str],
-      musescore_cmd: str,
-      no_pdf: bool,
-  ) -> Dict:
-
-      print("=== audio2score pipeline start ===")
-      print(f"Input Audio : {audio}")
-      print(f"Output Root : {output_root}")
-      print(f"Stems       : {do_stems} (models={models})")
-      print(f"MuseScore   : {musescore_cmd}")
-      print(f"PDF Export  : {not no_pdf}")
-
+      do_stems: bool = True,
+      models: Optional[List[str]] = None,
+      musescore_cmd: str = "mscore",
+      no_pdf: bool = False,
+  ) -> PipelineResult:
+      """
+      Audio → (normalize) → Demucs → BasicPitch → MuseScore
+      を一括実行する高レベルパイプライン。
+      """
+      audio = audio.resolve()
       output_root.mkdir(parents=True, exist_ok=True)
 
-      # 1. Normalize
+      # 1. 正規化された WAV を用意
+      print(f"[Pipeline] Input: {audio}")
       normalized = normalize_audio(audio)
 
-      stem_midis = {}
-
-      # 2. Demucs
+      # 2. Demucs でステム分離（任意）
+      stems_dir = output_root / "stems"
       if do_stems:
-          stems = separate_stems(normalized, output_root, models=models)
-          # 3. BasicPitch for each stem
-          stem_midis = run_basic_pitch_per_stems(stems, output_root)
+          if models is None:
+              models = ["htdemucs", "htdemucs_6s"]
+          stems_dir = separate_stems(normalized, models, output_root)
+      else:
+          stems_dir.mkdir(parents=True, exist_ok=True)
 
-          # 4. Export for stems
-          for stem_name, midi in stem_midis.items():
-              xml = output_root / "xml" / stem_name / f"{midi.stem}.musicxml"
-              pdf = output_root / "pdf" / stem_name / f"{midi.stem}.pdf"
+      # 3. BasicPitch でメロディ抽出（Audio → MIDI）
+      midi_path, _onnx_path = run_basic_pitch(normalized, output_root)
 
-              xml.parent.mkdir(parents=True, exist_ok=True)
-              pdf.parent.mkdir(parents=True, exist_ok=True)
+      # 4. MuseScore で楽譜生成
+      musicxml_path = export_score_with_musescore(
+          midi_path=midi_path,
+          output_root=output_root,
+          musescore_cmd=musescore_cmd,
+          no_pdf=no_pdf,
+      )
 
-              midi_to_musicxml(midi, xml, musescore_cmd)
-              if not no_pdf:
-                  musicxml_to_pdf(xml, pdf, musescore_cmd)
+      pdf_path = musicxml_path.with_suffix(".pdf")
+      if no_pdf or not pdf_path.exists():
+          pdf_path = None
 
-      # 5. BasicPitch for main
-      midi_main = run_basic_pitch(normalized, output_root / "midi" / "main")
-
-      # 6. Export main
-      xml_main = output_root / f"{midi_main.stem}.musicxml"
-      midi_to_musicxml(midi_main, xml_main, musescore_cmd)
-
-      pdf_main = None
-      if not no_pdf:
-          pdf_main = output_root / f"{midi_main.stem}.pdf"
-          musicxml_to_pdf(xml_main, pdf_main, musescore_cmd)
-
-      return {
-          "normalized": normalized,
-          "main_midi": midi_main,
-          "main_xml": xml_main,
-          "main_pdf": pdf_main,
-          "stems_midi": stem_midis,
-      }
+      return PipelineResult(
+          raw_wav=audio,
+          normalized_wav=normalized,
+          stems_dir=stems_dir,
+          midi_path=midi_path,
+          musicxml_path=musicxml_path,
+          pdf_path=pdf_path,
+      )
 #+end_src
 
-** *cli.py*
+** cli.py
 
 #+begin_src python :tangle src/audio2score/cli.py
   #!/usr/bin/env python3
@@ -580,7 +547,7 @@ audio2score は以下の *完全自動パイプライン* を提供します：
   from .pipeline import run_pipeline
 
 
-  def main():
+  def main() -> int:
       p = argparse.ArgumentParser("audio2score CLI")
 
       p.add_argument("audio", help="Input WAV (or converted WAV)")
@@ -593,7 +560,7 @@ audio2score は以下の *完全自動パイプライン* を提供します：
       args = p.parse_args()
 
       audio = pathlib.Path(args.audio).resolve()
-      out = pathlib.Path(args.output_dir).resolve()
+      out = pathlib.Path(args.output-dir).resolve()
 
       result = run_pipeline(
           audio=audio,
@@ -606,6 +573,7 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 
       print("=== DONE ===")
       print(result)
+      return 0
 
 
   if __name__ == "__main__":
@@ -616,38 +584,23 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 
 #+begin_src makefile :tangle Makefile
   # ============================================================
-  # Audio2Score Full Pipeline Makefile (Complete Version)
+  # Audio2Score Full Pipeline Makefile (uv-based Complete Version)
   # ============================================================
   # Features:
-  # - pyenv Python 3.10 自動検出
-  # - .venv 自動生成
-  # - README.org → src/*** 自動 tangle
-  # - パッケージ自動インストール (pip install .)
+  # - uv による Python / 仮想環境 / 依存関係の一括管理
+  # - README.org → src/*** 自動 tangle（Org Babel 側で実行）
+  # - pyproject.toml / uv.lock に基づく再現可能な環境
   # - ffmpeg による音源 → WAV 変換（外部 WAV も常に正規化用に通す）
-  # - audio2score CLI による Demucs+BasicPitch 自動実行
+  # - audio2score CLI（uv run 経由）による Demucs+BasicPitch 自動実行
   # - build/ が存在しない状態にも完全対応
   # ============================================================
 
   SHELL := /bin/bash
-  VENV := .venv
-  PY := $(VENV)/bin/python
-  PIP := $(VENV)/bin/pip
-  FIND_PYENV := $(shell command -v pyenv >/dev/null 2>&1 && echo yes || echo no)
 
   # ------------------------------------------------------------
-  # Python binary auto-select (pyenv 3.10.x → fallback python3)
+  # Tools
   # ------------------------------------------------------------
-  ifeq ($(FIND_PYENV),yes)
-  	# 最新の Python 3.10.x を pyenv から取得
-  	PYENV_VER := $(shell pyenv versions --bare | grep '^3\.10' | sort -V | tail -1)
-  	ifneq ($(PYENV_VER),)
-  		PYTHON_BIN := $(HOME)/.pyenv/versions/$(PYENV_VER)/bin/python3
-  	else
-  		PYTHON_BIN := python3
-  	endif
-  else
-  	PYTHON_BIN := python3
-  endif
+  UV := uv
 
   # ------------------------------------------------------------
   # Input / Output
@@ -661,49 +614,40 @@ audio2score は以下の *完全自動パイプライン* を提供します：
   # ============================================================
   # Main targets
   # ============================================================
-
   .PHONY: all
   all: score
 
   # ------------------------------------------------------------
-  # 1. create virtualenv + install package
+  # 1. Create / sync uv-managed environment
   # ------------------------------------------------------------
-  $(VENV):
-  	@echo ">>> Creating virtualenv: $(VENV)"
-  	$(PYTHON_BIN) -m venv $(VENV)
-  	$(PIP) install --upgrade pip wheel setuptools
-
   .PHONY: setup
-  setup: $(VENV)
-  	@echo ">>> Installing audio2score package"
-  	$(PIP) install .
-
+  setup:
+  	@echo ">>> Syncing uv environment (.venv / uv.lock)"
+  	$(UV) sync
 
   # ------------------------------------------------------------
   # 2. Convert INPUT → WAV with ffmpeg  (always run for normalization)
   # ------------------------------------------------------------
+  .PHONY: ffmpeg
+  ffmpeg: $(RAW_WAV)
+
   $(RAW_WAV):
   	@mkdir -p $(BUILD_DIR)
   	@echo "[FFMPEG] Converting $(INPUT) → $@"
   	ffmpeg -y -i "$(INPUT)" -ac 1 -ar 44100 "$@"
-
-  .PHONY: ffmpeg
-  ffmpeg: $(RAW_WAV)
-
 
   # ------------------------------------------------------------
   # 3. Run audio2score pipeline (Demucs + BasicPitch + MuseScore)
   # ------------------------------------------------------------
   .PHONY: score
   score: setup ffmpeg
-  	@echo "=== Running audio2score pipeline ==="
-  	$(PY) -m audio2score.cli \
+  	@echo "=== Running audio2score pipeline via uv run ==="
+  	$(UV) run -- python -m audio2score.cli \
   		"$(RAW_WAV)" \
   		--output-dir "$(BUILD_DIR)" \
   		--stems \
   		--models htdemucs htdemucs_6s \
   		--musescore-cmd mscore
-
 
   # ------------------------------------------------------------
   # Clean up
@@ -714,11 +658,10 @@ audio2score は以下の *完全自動パイプライン* を提供します：
 
   .PHONY: clean-venv
   clean-venv:
-  	rm -rf $(VENV)
+  	rm -rf .venv uv.lock
 
   .PHONY: distclean
   distclean: clean clean-venv
   	rm -rf src/audio2score/*.pyc __pycache__
-
 
 #+end_src
