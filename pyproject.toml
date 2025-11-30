@@ -12,17 +12,19 @@ license = { text = "MIT" }
 # Runtime Dependencies (本番動作に必要)
 # -------------------------------------------
 dependencies = [
-  "librosa>=0.10",
-  "soundfile>=0.12",
-  "basic-pitch>=0.3",
-  "demucs>=4.0.0",
-  "music21>=9.1",
-  "numpy>=1.23",
-  "scipy>=1.10",
-  "numba>=0.57",
-  "tqdm>=4.66",
-  "requests>=2.31",
-  "torchcodec>=0.8.1",
+  "librosa>=0.10",        # 音声前処理（正規化、ロード、リサンプリング）
+  "soundfile>=0.12",      # WAV の読み書き
+  "basic-pitch>=0.3",     # Audio → MIDI
+  "demucs>=4.0.0",        # ステム分離
+  "music21>=9.1",         # MIDI → MusicXML fallback 等
+  "numpy>=1.23",          # 数値演算
+  "scipy>=1.10",          # 信号処理
+  "numba>=0.57",          # librosa 用の高速化
+  "tqdm>=4.66",           # プログレスバー
+  "requests>=2.31",       # モデル取得など HTTP
+  "torch>=2.1",           # Demucs / torchaudio 実行用
+  "torchcodec>=0.8.1",    # torchaudio.save が要求（今回の ImportError 対策）
+  "setuptools>=68,<81",   # pkg_resources 提供（resampy / basic-pitch 用）かつ将来削除回避
 ]
 
 # -------------------------------------------
@@ -39,7 +41,7 @@ dev = [
 # Package Layout
 # -------------------------------------------
 [project.urls]
-homepage = "https://github.com/ac1965/audio2score"
+homepage   = "https://github.com/ac1965/audio2score"
 repository = "https://github.com/ac1965/audio2score"
 
 [build-system]
@@ -47,8 +49,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 # -------------------------------------------
-# Vocals: model caching & torch warnings 表示制御
+# Tool configuration (任意メタ情報)
 # -------------------------------------------
 [tool.audio2score]
-default_models = ["htdemucs", "htdemucs_6s"]
+default_models     = ["htdemucs", "htdemucs_6s"]
 default_samplerate = 44100

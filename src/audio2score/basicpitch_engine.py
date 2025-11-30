@@ -4,6 +4,7 @@ from typing import Tuple
 
 import numpy as np
 from basic_pitch.inference import predict_and_save
+from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
 def run_basic_pitch(
@@ -23,27 +24,38 @@ def run_basic_pitch(
     onnx_path = midi_dir / "main.onnx.npy"
 
     print(f"[BasicPitch] audio={audio}")
+
+    # Basic Pitch v0.4.0 以降のシグネチャ（位置引数）に完全に合わせる:
+    # predict_and_save(
+    #     input_audio_path_list,
+    #     output_directory,
+    #     save_midi,
+    #     sonify_midi,
+    #     save_model_outputs,
+    #     save_notes,
+    #     model_or_model_path,
+    # )
     predict_and_save(
-        [str(audio)],
-        output_dir=str(midi_dir),
-        save_midi=True,
-        save_model_outputs=True,
+        [str(audio)],           # input_audio_path_list
+        str(midi_dir),          # output_directory
+        True,                   # save_midi
+        False,                  # sonify_midi (WAV 出力は不要なので False)
+        True,                   # save_model_outputs (NPZ 出力)
+        True,                   # save_notes (CSV 出力)
+        ICASSP_2022_MODEL_PATH, # 使用するモデルパス
     )
 
-    # BasicPitch の標準出力に依存しないよう、ファイル名を決め打ちに揃える場合は
-    # 必要に応じて rename する処理をここに追加する。
-    # （現状はディレクトリ内の *.mid を 1つ想定）
-
-    mids = list(midi_dir.glob("*.mid"))
+    # BasicPitch が生成した .mid を拾って main.mid に統一する
+    mids = sorted(midi_dir.glob("*.mid"))
     if not mids:
         raise FileNotFoundError(f"No MIDI file generated in {midi_dir}")
-    # 最初のものを main.mid に統一
+
+    if midi_path.exists():
+        midi_path.unlink()
     mids[0].rename(midi_path)
 
-    # モデルの生出力（オンセット・フレームなど）を保存している場合
-    # onnx_path = midi_dir / "main_model_output.npy"
+    # モデル出力の placeholder （必要なら後でちゃんと拾う）
     if not onnx_path.exists():
-        # ダミーで空の npy を置いておく（将来の解析用）
         np.save(onnx_path, np.zeros((1,)))
 
     return midi_path, onnx_path
