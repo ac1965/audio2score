@@ -250,7 +250,7 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
     "tqdm>=4.66",             # プログレスバー
     "requests>=2.31",         # モデル取得など HTTP
 
-    # ★ここを重要ペアに固定（TorchCodec を避ける）
+    # TorchCodec を避ける
     "torch==2.7.*",           # PyTorch 2.7 系（torchaudio 2.7 とセット）
     "torchaudio==2.7.*",      # TorchAudio 2.7 系（この版では save/load は従来 backend）
 
