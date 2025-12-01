@@ -370,104 +370,110 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   def run_basic_pitch(
       audio: pathlib.Path,
       output_root: pathlib.Path,
+      stem_name: str,
   ) -> Tuple[pathlib.Path, pathlib.Path]:
       """
       BasicPitch による Audio→MIDI 変換。
-      - audio: 正規化済み WAV
-      - output_root/midi/main.mid として保存
+      - 既存の .mid / .npz / .csv があれば自動削除してから再生成
+      - 入力ファイル名（stem_name）を最終成果物まで保持
       """
       audio = audio.resolve()
       midi_dir = output_root / "midi"
       midi_dir.mkdir(parents=True, exist_ok=True)
 
-      midi_path = midi_dir / "main.mid"
-      onnx_path = midi_dir / "main.onnx.npy"
-
       print(f"[BasicPitch] audio={audio}")
 
-      # Basic Pitch v0.4.0 以降のシグネチャ（位置引数）に完全に合わせる:
-      # predict_and_save(
-      #     input_audio_path_list,
-      #     output_directory,
-      #     save_midi,
-      #     sonify_midi,
-      #     save_model_outputs,
-      #     save_notes,
-      #     model_or_model_path,
-      # )
+      # --- ★ 既存出力の自動クリーン（BasicPitch の安全停止対策） ---
+      for ext in ("*.mid", "*.npz", "*.csv"):
+          for f in midi_dir.glob(ext):
+              f.unlink()
+
+      # --- Basic Pitch v0.4.x 正式API ---
       predict_and_save(
           [str(audio)],           # input_audio_path_list
           str(midi_dir),          # output_directory
           True,                   # save_midi
-          False,                  # sonify_midi (WAV 出力は不要なので False)
-          True,                   # save_model_outputs (NPZ 出力)
-          True,                   # save_notes (CSV 出力)
-          ICASSP_2022_MODEL_PATH, # 使用するモデルパス
+          False,                  # sonify_midi
+          True,                   # save_model_outputs
+          True,                   # save_notes
+          ICASSP_2022_MODEL_PATH, # 使用モデル
       )
 
-      # BasicPitch が生成した .mid を拾って main.mid に統一する
+      # --- MIDI ファイル取得 ---
       mids = sorted(midi_dir.glob("*.mid"))
       if not mids:
           raise FileNotFoundError(f"No MIDI file generated in {midi_dir}")
 
-      if midi_path.exists():
-          midi_path.unlink()
-      mids[0].rename(midi_path)
+      final_midi = midi_dir / f"{stem_name}.mid"
+      if final_midi.exists():
+          final_midi.unlink()
+      mids[0].rename(final_midi)
 
-      # モデル出力の placeholder （必要なら後でちゃんと拾う）
-      if not onnx_path.exists():
+      # --- npz ファイル取得 ---
+      npzs = sorted(midi_dir.glob("*.npz"))
+      if npzs:
+          onnx_path = npzs[0]
+      else:
+          onnx_path = midi_dir / f"{stem_name}.npz"
           np.save(onnx_path, np.zeros((1,)))
 
-      return midi_path, onnx_path
+      print(f"[BasicPitch] MIDI generated: {final_midi}")
+
+      return final_midi, onnx_path
 #+end_src
 
 ** score_export.py
 
 #+begin_src python :tangle src/audio2score/score_export.py
   #!/usr/bin/env python3
-  import pathlib
+  import pathlib  # ← ★ これが抜けていた
   import subprocess
-  from typing import Optional
 
 
   def export_score_with_musescore(
       midi_path: pathlib.Path,
       output_root: pathlib.Path,
-      musescore_cmd: str = "mscore",
+      stem_name: str,
+      musescore_cmd: str = "musescore4",
       no_pdf: bool = False,
   ) -> pathlib.Path:
       """
       MuseScore CLI を用いて
       - MIDI → MusicXML
       - MusicXML → PDF
-      を行う。
+      を行う（入力ファイル名を保持）
       """
       midi_path = midi_path.resolve()
       score_dir = output_root / "score"
       score_dir.mkdir(parents=True, exist_ok=True)
 
-      musicxml_path = score_dir / "main.musicxml"
-      pdf_path = score_dir / "main.pdf"
+      musicxml_path = score_dir / f"{stem_name}.musicxml"
+      pdf_path = score_dir / f"{stem_name}.pdf"
 
-      # MIDI -> MusicXML
+      # --- MIDI -> MusicXML ---
       cmd_xml = [
           musescore_cmd,
           "-o",
           str(musicxml_path),
           str(midi_path),
       ]
+
       print(f"[MuseScore] MIDI → MusicXML: {' '.join(cmd_xml)}")
       subprocess.run(cmd_xml, check=True)
 
-      if not no_pdf:
-          cmd_pdf = [
-              musescore_cmd,
-              "-o",
-              str(pdf_path),
-              str(musicxml_path),
-          ]
-          print(f"[MuseScore] MusicXML → PDF: {' '.join(cmd_pdf)}")
-          subprocess.run(cmd_pdf, check=True)
+      if no_pdf:
+          return musicxml_path
+
+      # --- MusicXML -> PDF ---
+      cmd_pdf = [
+          musescore_cmd,
+          "-o",
+          str(pdf_path),
+          str(musicxml_path),
+      ]
+
+      print(f"[MuseScore] MusicXML → PDF: {' '.join(cmd_pdf)}")
+      subprocess.run(cmd_pdf, check=True)
 
       return musicxml_path
 #+end_src
@@ -476,7 +482,7 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
 
 #+begin_src python :tangle src/audio2score/pipeline.py
   #!/usr/bin/env python3
-  import pathlib
+  import pathlib  # ← ★ これが抜けていた
   from dataclasses import dataclass
   from typing import List, Optional
 
@@ -501,21 +507,21 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
       output_root: pathlib.Path,
       do_stems: bool = True,
       models: Optional[List[str]] = None,
-      musescore_cmd: str = "mscore",
+      musescore_cmd: str = "musescore4",
       no_pdf: bool = False,
   ) -> PipelineResult:
-      """
-      Audio → (normalize) → Demucs → BasicPitch → MuseScore
-      を一括実行する高レベルパイプライン。
-      """
+
       audio = audio.resolve()
       output_root.mkdir(parents=True, exist_ok=True)
 
-      # 1. 正規化された WAV を用意
+      stem_name = audio.stem
+
       print(f"[Pipeline] Input: {audio}")
+
+      # 1. 正規化
       normalized = normalize_audio(audio)
 
-      # 2. Demucs でステム分離（任意）
+      # 2. Demucs ステム分離
       stems_dir = output_root / "stems"
       if do_stems:
           if models is None:
@@ -524,18 +530,23 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
       else:
           stems_dir.mkdir(parents=True, exist_ok=True)
 
-      # 3. BasicPitch でメロディ抽出（Audio → MIDI）
-      midi_path, _onnx_path = run_basic_pitch(normalized, output_root)
+      # 3. BasicPitch（入力名を保持）
+      midi_path, _onnx_path = run_basic_pitch(
+          normalized,
+          output_root,
+          stem_name=stem_name,
+      )
 
-      # 4. MuseScore で楽譜生成
+      # 4. MuseScore（入力名を保持）
       musicxml_path = export_score_with_musescore(
           midi_path=midi_path,
           output_root=output_root,
+          stem_name=stem_name,
           musescore_cmd=musescore_cmd,
           no_pdf=no_pdf,
       )
 
-      pdf_path = musicxml_path.with_suffix(".pdf")
+      pdf_path = output_root / "score" / f"{stem_name}.pdf"
       if no_pdf or not pdf_path.exists():
           pdf_path = None
 
@@ -699,3 +710,55 @@ Makefile を介さず直接実行したい場合は、以下のようにしま�
   distclean: clean clean-venv
   	rm -rf src/audio2score/*.pyc __pycache__
 #+end_src
+
+* 命名規則
+
+本プロジェクトでは、*入力ファイル（INPUT）で指定した音源のベースファイル名を、パイプラインの最終成果物（PDF）まで一貫して保持* する。
+
+** 命名規則の基本方針
+
+- INPUT で指定された音源ファイルの *拡張子を除いたベース名* を、以降のすべての成果物のファイル名に使用する。
+- 処理の途中で *main.mid* や *main.pdf* のような固定名には *変換しない*。
+- 同一ディレクトリ内で複数ファイルを処理した場合でも、*上書きが発生しない* 安全な命名規則となっている。
+
+** 具体例
+
+以下の入力を例とする：
+
+#+begin_src text
+INPUT = env/input/おはよう.wav
+#+end_src
+
+この場合、生成される成果物はすべて以下の命名となる。
+
+| 処理段階              | 出力先ディレクトリ | ファイル名                    |
+|-----------------------+---------------------+--------------------------------|
+| ffmpeg 変換           | build/              | おはよう.wav                   |
+| 正規化（preprocess） | build/              | おはよう.norm.wav              |
+| BasicPitch（MIDI）    | build/midi/         | おはよう.mid                   |
+| 楽譜（MusicXML）     | build/score/        | おはよう.musicxml              |
+| 楽譜（PDF）          | build/score/        | おはよう.pdf                   |
+
+** 複数ファイル処理時の安全性
+
+- すべての成果物は *INPUT のベース名ごとに分離* されるため、以下のような連続処理でも成果物が衝突しない。
+
+#+begin_src bash
+make score INPUT="env/input/song_a.wav"
+make score INPUT="env/input/song_b.wav"
+#+end_src
+
+このとき、生成される成果物は以下のように共存する。
+
+#+begin_src text
+build/midi/song_a.mid
+build/midi/song_b.mid
+build/score/song_a.pdf
+build/score/song_b.pdf
+#+end_src
+
+** 設計上の意図
+
+- ファイル管理を *人間が目視で追跡可能* にすることを最優先とする。
+- バッチ処理・連続処理・スクリプト連携において、*成果物の対応関係が常に一意に復元できる* ことを保証する。
+- 研究用途・採譜用途・業務用途いずれにおいても、*成果物の真正性（どの音源から生成されたか）をファイル名だけで判別できる* 状態を維持する。

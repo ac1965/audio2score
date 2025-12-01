@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import pathlib
+import pathlib  # ← ★ これが抜けていた
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -24,21 +24,21 @@ def run_pipeline(
     output_root: pathlib.Path,
     do_stems: bool = True,
     models: Optional[List[str]] = None,
-    musescore_cmd: str = "mscore",
+    musescore_cmd: str = "musescore4",
     no_pdf: bool = False,
 ) -> PipelineResult:
-    """
-    Audio → (normalize) → Demucs → BasicPitch → MuseScore
-    を一括実行する高レベルパイプライン。
-    """
+
     audio = audio.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # 1. 正規化された WAV を用意
+    stem_name = audio.stem
+
     print(f"[Pipeline] Input: {audio}")
+
+    # 1. 正規化
     normalized = normalize_audio(audio)
 
-    # 2. Demucs でステム分離（任意）
+    # 2. Demucs ステム分離
     stems_dir = output_root / "stems"
     if do_stems:
         if models is None:
@@ -47,18 +47,23 @@ def run_pipeline(
     else:
         stems_dir.mkdir(parents=True, exist_ok=True)
 
-    # 3. BasicPitch でメロディ抽出（Audio → MIDI）
-    midi_path, _onnx_path = run_basic_pitch(normalized, output_root)
+    # 3. BasicPitch（入力名を保持）
+    midi_path, _onnx_path = run_basic_pitch(
+        normalized,
+        output_root,
+        stem_name=stem_name,
+    )
 
-    # 4. MuseScore で楽譜生成
+    # 4. MuseScore（入力名を保持）
     musicxml_path = export_score_with_musescore(
         midi_path=midi_path,
         output_root=output_root,
+        stem_name=stem_name,
         musescore_cmd=musescore_cmd,
         no_pdf=no_pdf,
     )
 
-    pdf_path = musicxml_path.with_suffix(".pdf")
+    pdf_path = output_root / "score" / f"{stem_name}.pdf"
     if no_pdf or not pdf_path.exists():
         pdf_path = None
 
